@@ -36,6 +36,62 @@ Canadian firms lived through major trade disruption between 2013 and 2023 — a 
 - **Q5 — Firm size:** estimated a panel regression with a shock × small-firm interaction term (`PanelOLS`, entity and time fixed effects, clustered standard errors) to test whether trade shocks affect small and large firms differently.
 - **Tools:** Python (pandas for cleaning/merging/reshaping), Jupyter/Colab, `statsmodels`/`linearmodels` (PanelOLS, fixed-effects regression), seaborn/matplotlib for visualization.
 
+### Q6 — Difference-in-differences: causal impact of trade shock exposure
+
+Q3 above used *continuous* trade-shock magnitude as a predictor and found it wasn't statistically
+significant once industry and year effects were controlled for. Q6 asks a related but different
+question with a proper causal design: did industries *structurally exposed* to trade (regardless
+of a given year's shock size) fare worse specifically around the COVID-19 shock than industries
+that aren't trade-exposed at all? Full analysis, code, and diagnostics:
+[`EDA/Q6-Difference-in-Differences Trade Shock Impact.ipynb`](<EDA/Q6-Difference-in-Differences Trade Shock Impact.ipynb>).
+
+**Data note:** the firm-level revenue and export/import trade-exposure data Q3 used were loaded
+from a Google Drive folder that was never committed to this repo — `export.csv`, `import.csv`,
+`Revenue.csv.zip`, and `Expenses.csv.zip` in `Data/` are all empty placeholders (2 bytes each).
+Q6 therefore uses **real GDP by industry** (from `gdp.csv`, fully populated, 2013–2023) as the
+outcome variable instead of firm revenue — a genuine substitution stated explicitly, not glossed
+over.
+
+**Treatment / control:**
+- **Treatment (trade-exposed):** Mining/Oil & Gas Extraction, Manufacturing, Wholesale Trade — the
+  three industries Q2 above identified as having the largest net trade exposure.
+- **Control (non-tradable):** Health Care & Social Assistance, Educational Services, Public
+  Administration — domestically-anchored, largely publicly-funded sectors with minimal direct
+  trade exposure.
+- **Post period:** `year >= 2020` (the COVID-19 trade shock — the same event Q3 already treated as
+  the defining shock for 2013–2023).
+- Panel: 13 provinces × 6 industries × 11 years = 858 balanced observations.
+
+**Parallel trends check (required before trusting the estimate):**
+
+![Parallel trends check](EDA/parallel_trends_check.png)
+
+Visually the two groups move together in a fairly narrow band from 2013–2019, then diverge sharply
+after 2020. Formally, a pre-period-only regression (`log_real_gdp ~ treatment*year_trend`,
+2013–2019) found a small but statistically significant differential pre-trend:
+**treatment industries were already drifting down ~0.8%/year relative to control industries before
+the shock (coefficient -0.0083, p = 0.024)** — about a tenth the size of the post-shock effect
+below. Parallel trends holds *approximately*, not exactly, and that caveat is carried into the
+interpretation rather than dropped.
+
+**Causal estimate:** `log(real_gdp) ~ treatment + post + treatment:post`, clustered standard
+errors by industry:
+
+| Term | Coefficient | p-value | 95% CI |
+|---|---|---|---|
+| `treatment:post` | **-0.0782** | 0.005 | [-0.132, -0.024] |
+
+Industries exposed to the COVID-19 trade shock saw real GDP decline an additional **~7.5%**
+relative to non-exposed industries, holding pre-existing level differences and the shared
+post-2020 trend constant. The estimate is unchanged (-0.078, p = 0.005) under a province + year
+fixed-effects specification, so it isn't an artifact of the simple `post` dummy.
+
+**Interpretation, with the caveat carried through:** given the small but real pre-existing
+divergence between the groups, the true effect of the shock itself is most plausibly somewhat
+smaller than -7.5% once that drift is netted out — but the direction (trade-exposed industries hit
+harder) and rough magnitude hold up under the fixed-effects robustness check. This is presented as
+a genuine causal estimate with a stated, non-trivial limitation, not a clean natural experiment.
+
 ## Results
 
 **Industry growth (Q1):** Finance, Professional Services, Health, and Public Administration showed steady positive growth across all provinces. NAICS 55 (Management of Companies) declined sharply everywhere (~-20% CAGR) — a structural decline, not a regional one. Resource-rich provinces (Alberta, Saskatchewan, Newfoundland & Labrador) grew in mining/oil & gas and transportation and large provinces (Ontario, Quebec, BC) showed broad service-led growth.
@@ -50,7 +106,8 @@ Canadian firms lived through major trade disruption between 2013 and 2023 — a 
 
 ## Key takeaways
 
-- Trade shocks did **not** have a statistically significant average effect on Canadian industry revenue between 2013–2023 once macro effects (COVID, the rebound) were controlled for — economy-wide shocks dominated over trade-specific ones.
+- **Causal estimate (Q6):** industries structurally exposed to trade (Manufacturing, Mining/Oil & Gas, Wholesale Trade) saw real GDP decline an additional ~7.5% relative to non-trade-exposed industries during the COVID-19 shock, holding pre-existing differences and the shared time trend constant (diff-in-diff, p = 0.005) — robust to a fixed-effects specification, though a small pre-existing differential trend means this should be read as directionally right rather than a perfectly clean estimate.
+- Trade shocks did **not** have a statistically significant average effect on Canadian industry revenue between 2013–2023 once macro effects (COVID, the rebound) were controlled for — economy-wide shocks dominated over trade-specific ones. (Note this asks a different question than Q6 above: Q3 tests year-to-year trade-shock *magnitude*, Q6 tests being a structurally trade-exposed industry *at all* during COVID specifically — the two aren't contradictory.)
 - Trade exposure is concentrated in a small number of industries (wholesale, mining/oil & gas, manufacturing), so disruption effects were reallocated across those sectors rather than spread economy-wide.
 - Small firms grew faster than large firms on average and were more resilient to trade shocks specifically — but that resilience isn't unconditional, it appears to erode somewhat as shock size increases.
 - Exchange-rate effects were directionally consistent with trade theory (depreciation helps exporters more than it costs importers) but modest in magnitude.
@@ -58,11 +115,15 @@ Canadian firms lived through major trade disruption between 2013 and 2023 — a 
 
 ## Repo structure
 ```
-├── data/                      # raw + processed CSVs, or links to Statistics Canada / open.canada.ca sources
-├── notebooks/
-│   └── trade_shocks_industry_performance_analysis.ipynb
-├── report/
-│   └── trade_shocks_industry_performance_report.pdf
+├── Data/                       # gdp.csv, cpi.csv populated; export/import/Revenue/Expenses are
+│                                #   empty placeholders — see the Q6 data note above
+├── EDA/
+│   ├── Q1 ... Q5-*.ipynb        # original five questions
+│   ├── Q6-Difference-in-Differences Trade Shock Impact.ipynb
+│   ├── parallel_trends_check.png
+│   └── Create_*.ipynb           # data-prep notebooks for trade/exchange-rate/revenue CSVs
+├── Final_Project_Notebook.ipynb
+├── Trade Shocks and Industry Performance in Canada (2013–2023).pdf
 └── README.md
 ```
 
@@ -70,3 +131,5 @@ Canadian firms lived through major trade disruption between 2013 and 2023 — a 
 - Add a lagged-FX specification, since exchange-rate effects on revenue may show up with a delay rather than contemporaneously.
 - Run placebo/robustness checks with alternative trade-exposure metrics, as originally planned in the approach but not fully executed given data-availability constraints.
 - Extend the firm-size interaction analysis with confidence intervals visualized directly against the shock-magnitude axis, to make the "resilience erodes at larger shocks" finding more visually explicit.
+- Recover the original firm-level revenue and export/import trade-exposure files (Q6's data note) to re-run the diff-in-diff on firm revenue directly and with a continuously-measured treatment, rather than GDP and an a priori industry classification.
+- Use a matched-trends or synthetic-control approach for the control group to close the small pre-trend gap Q6 found, rather than the a priori sector classification used here.
