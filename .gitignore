@@ -2,3 +2,8 @@
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
+
+# Uncompressed copies of the two large files - only the .zip versions are tracked.
+# Expenses.csv alone is 103 MB, over GitHub's 100 MB per-file limit.
+Data/Expenses.csv
+Data/Revenue.csv

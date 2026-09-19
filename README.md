@@ -45,12 +45,23 @@ of a given year's shock size) fare worse specifically around the COVID-19 shock 
 that aren't trade-exposed at all? Full analysis, code, and diagnostics:
 [`EDA/Q6-Difference-in-Differences Trade Shock Impact.ipynb`](<EDA/Q6-Difference-in-Differences Trade Shock Impact.ipynb>).
 
-**Data note:** the firm-level revenue and export/import trade-exposure data Q3 used were loaded
-from a Google Drive folder that was never committed to this repo — `export.csv`, `import.csv`,
-`Revenue.csv.zip`, and `Expenses.csv.zip` in `Data/` are all empty placeholders (2 bytes each).
-Q6 therefore uses **real GDP by industry** (from `gdp.csv`, fully populated, 2013–2023) as the
-outcome variable instead of firm revenue — a genuine substitution stated explicitly, not glossed
-over.
+**Data note:** the firm-level revenue and expense files and the raw export/import trade tables
+were originally committed to this repo as empty 2-byte placeholders — the team's real copies lived
+in a shared Google Drive folder. They have since been restored from it (public Statistics Canada
+data), so `Data/` now holds:
+- `export.csv` — 35,632 rows (value of exports and number of exporting establishments, by industry and geography)
+- `import.csv` — 30,470 rows (value of imports and number of importing establishments)
+- `Revenue.csv.zip` — 793,898 rows, 2013–2023
+- `Expenses.csv.zip` — 364,043 rows, 2013–2023
+
+Revenue and Expenses are stored zipped because the uncompressed Expenses file (103 MB) is over
+GitHub's 100 MB per-file limit; pandas reads them directly, e.g. `pd.read_csv("Data/Revenue.csv.zip")`.
+(The data-prep notebooks in `EDA/` refer to a `../RawData/` folder; in this repo those files are in `Data/`.)
+
+Q6 itself was built while those files were still missing, so it uses **real GDP by industry**
+(from `gdp.csv`, 2013–2023) as the outcome variable instead of firm revenue — a genuine
+substitution stated explicitly, not glossed over. Re-running it on firm revenue is now possible
+(see Possible extensions).
 
 **Treatment / control:**
 - **Treatment (trade-exposed):** Mining/Oil & Gas Extraction, Manufacturing, Wholesale Trade — the
@@ -115,8 +126,7 @@ a genuine causal estimate with a stated, non-trivial limitation, not a clean nat
 
 ## Repo structure
 ```
-├── Data/                       # gdp.csv, cpi.csv populated; export/import/Revenue/Expenses are
-│                                #   empty placeholders — see the Q6 data note above
+├── Data/                       # input CSVs; Revenue and Expenses are zipped (see the Q6 data note above)
 ├── EDA/
 │   ├── Q1 ... Q5-*.ipynb        # original five questions
 │   ├── Q6-Difference-in-Differences Trade Shock Impact.ipynb
@@ -131,5 +141,5 @@ a genuine causal estimate with a stated, non-trivial limitation, not a clean nat
 - Add a lagged-FX specification, since exchange-rate effects on revenue may show up with a delay rather than contemporaneously.
 - Run placebo/robustness checks with alternative trade-exposure metrics, as originally planned in the approach but not fully executed given data-availability constraints.
 - Extend the firm-size interaction analysis with confidence intervals visualized directly against the shock-magnitude axis, to make the "resilience erodes at larger shocks" finding more visually explicit.
-- Recover the original firm-level revenue and export/import trade-exposure files (Q6's data note) to re-run the diff-in-diff on firm revenue directly and with a continuously-measured treatment, rather than GDP and an a priori industry classification.
+- Now that the firm-level revenue and export/import files are restored (see the Q6 data note), re-run the diff-in-diff on firm revenue directly and with a continuously-measured trade-exposure treatment, rather than GDP and an a priori industry classification.
 - Use a matched-trends or synthetic-control approach for the control group to close the small pre-trend gap Q6 found, rather than the a priori sector classification used here.
