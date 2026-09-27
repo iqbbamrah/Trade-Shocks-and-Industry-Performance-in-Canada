@@ -43,14 +43,14 @@ Canadian firms lived through major trade disruption between 2013 and 2023: a lar
 - **PySpark pipeline (`spark/`):** a rebuild of the data preparation and Q1–Q5 analysis as a layered PySpark pipeline, validated row-for-row against independent pandas calculations.
   - *Bronze:* every raw CSV is read with an explicit schema checked against its header, and saved as Parquet (revenue and expenses partitioned by year).
   - *Silver:* cleaning and reshaping with Spark:
-    - deduplication, with one canonical full-detail record per revenue key (the export repeats keys for unlabeled sub-populations, so summing them would double-count);
-    - medians for expense keys whose rows can't be told apart;
-    - `unpivot`-style reshaping of the revenue quartiles, and a pivot of StatCan's long-format trade tables;
-    - regex extraction of NAICS codes, and an order-preserving fill-down of the GDP file.
+    - Deduplication, with one canonical full-detail record per revenue key (the export repeats keys for unlabeled sub-populations, so summing them would double-count).
+    - Medians for expense keys whose rows can't be told apart.
+    - `unpivot`-style reshaping of the revenue quartiles, and a pivot of StatCan's long-format trade tables.
+    - Regex extraction of NAICS codes, and an order-preserving fill-down of the GDP file.
   - *Gold:* one table per question:
-    - real GDP growth and CAGR (window functions, `min_by`/`max_by`);
-    - trade exposure and trade shocks (written in Spark SQL);
-    - a firm-size revenue panel (broadcast joins, lag windows);
+    - Real GDP growth and CAGR (window functions, `min_by`/`max_by`).
+    - Trade exposure and trade shocks (written in Spark SQL).
+    - A firm-size revenue panel (broadcast joins, lag windows).
     - FX correlations and within-industry revenue inequality.
   - *Models:* Spark ML pipelines (`StringIndexer` → `OneHotEncoder` → `VectorAssembler` → `LinearRegression`) for Q3 and Q5, with sector and year fixed effects and a firm-size control. The trade shock is measured per sector × year (198 distinct values shared across 6,562 rows), so classical standard errors overstate precision. The modeling table is therefore also refit in `statsmodels` with standard errors clustered by sector, which Spark ML doesn't provide, and the pipeline checks that both libraries produce the same coefficients.
   - *Quality:* 17 data-quality checks between layers (uniqueness, nulls, row volumes, ranges) stop the run on failure, and 8 unit tests cover the trickiest transformations and the regression code.
@@ -70,7 +70,7 @@ Canadian firms lived through major trade disruption between 2013 and 2023: a lar
 **Firm size (Q5):** small firms had substantially and consistently higher log revenue growth than large firms across the trade-shock and import-shock range (coefficient ≈ 4.5, p < 0.001 in both specifications), with tighter outcomes. Large firms showed much wider dispersion, including more negative growth under bigger shocks. The small-firm × shock interaction was negative and marginally significant.
 
 **PySpark pipeline:** results from a cleaner panel (6,562 industry × size × year observations, 4-digit NAICS), with standard errors clustered by sector (18 clusters):
-- **Trade shocks (Q3):** once firm size is controlled for (R² 0.71; size alone explains ~68% of the variation in log revenue), trade shock and net trade exposure are still not significant predictors of revenue (p = 0.91 and p = 0.31). This matches the original finding. With classical standard errors, net exposure would have looked borderline significant (p = 0.052), which is an artifact of treating rows that share a sector-year as independent.
+- **Trade shocks (Q3):** once firm size is controlled for (R² 0.71, with size alone explaining ~68% of the variation in log revenue), trade shock and net trade exposure are still not significant predictors of revenue (p = 0.91 and p = 0.31). This matches the original finding. With classical standard errors, net exposure would have looked borderline significant (p = 0.052), which is an artifact of treating rows that share a sector-year as independent.
 - **Firm size (Q5):** the small-firm × shock interaction is negative (-0.22), but its clustered standard error is 4x the classical one, and it isn't significant (p = 0.65, vs. p = 0.074 with classical standard errors). So the rebuild does **not** confirm that small firms respond differently to trade shocks.
 - **Real GDP growth (Q1):** without the double deflation, 2013–2023 real GDP growth ranges from 4.3%/yr (Nunavut) and 3.1% (BC) to -0.6% (Newfoundland & Labrador), about 2.0%/yr for Canada overall. NAICS 55's median decline is -20.7%/yr.
 
@@ -106,7 +106,7 @@ Trade-exposed industries saw real GDP fall an additional **~7.5%** relative to n
    spark/.venv/Scripts/python spark/run_pipeline.py       # bronze -> silver -> gold -> models (~5 min)
    spark/.venv/Scripts/python -m pytest spark/tests       # unit tests
    ```
-   Output lands in `spark/output/` (Parquet tables, model coefficients as CSV, and a `run_summary.json`); the Spark UI is at `http://localhost:4040` while it runs. On Windows without Hadoop's `winutils.exe`, Parquet files are read and written through Apache Arrow instead of Spark's own writer; all transformations still run in Spark, and on Linux/WSL/Docker the native writer is used.
+   Output lands in `spark/output/` (Parquet tables, model coefficients as CSV, and a `run_summary.json`), and the Spark UI is at `http://localhost:4040` while it runs. On Windows without Hadoop's `winutils.exe`, Parquet files are read and written through Apache Arrow instead of Spark's own writer. All transformations still run in Spark, and on Linux/WSL/Docker the native writer is used.
 
 ## Repo structure
 
