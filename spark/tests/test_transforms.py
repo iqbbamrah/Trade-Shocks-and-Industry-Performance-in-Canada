@@ -3,7 +3,7 @@ import math
 
 from pyspark.sql import functions as F
 
-from trade_pipeline import clean, metrics
+from trade_pipeline import clean, metrics, models
 from trade_pipeline.ingest import snake_case
 
 QUARTILE_COLS = [
@@ -126,3 +126,17 @@ def test_firm_panel_growth_skips_year_gaps(spark):
     assert growth[2013] is None
     assert math.isclose(growth[2014], math.log(110 / 100))
     assert growth[2016] is None  # a 2-year change isn't labelled as a 1-year one
+
+
+def test_fit_ols_recovers_known_coefficients(spark):
+    # y = 1.5 * x + a sector effect + a year effect, with a little deterministic noise.
+    rows = [
+        (1.5 * x + {"11": 0.0, "21": 3.0, "31-33": -2.0}[s] + 0.1 * y + 0.01 * ((i * 7) % 5), float(x), s, y)
+        for i, (s, y, x) in enumerate((s, y, x) for s in ("11", "21", "31-33") for y in range(2013, 2018) for x in range(4))
+    ]
+    panel = spark.createDataFrame(rows, "outcome double, x double, sector string, year int")
+    result = models.fit_ols(panel, "synthetic", label="outcome", numeric=["x"], fixed_effects=["sector", "year"])
+    x_row = result.coefficients.set_index("term").loc["x"]
+    assert math.isclose(x_row.estimate, 1.5, abs_tol=0.01)
+    assert result.n_observations == 60 and result.n_clusters == 3
+    assert x_row.cluster_std_error > 0 and 0 <= x_row.cluster_p_value <= 1

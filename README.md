@@ -48,8 +48,8 @@ Canadian firms lived through major trade disruption between 2013 and 2023: a lar
     - trade exposure and trade shocks (written in Spark SQL);
     - a firm-size revenue panel (broadcast joins, lag windows);
     - FX correlations and within-industry revenue inequality.
-  - *Models:* Spark ML pipelines (`StringIndexer` → `OneHotEncoder` → `VectorAssembler` → `LinearRegression`) for Q3 and Q5.
-  - *Quality:* 17 data-quality checks between layers (uniqueness, nulls, row volumes, ranges) stop the run on failure, and 7 unit tests cover the trickiest transformations.
+  - *Models:* Spark ML pipelines (`StringIndexer` → `OneHotEncoder` → `VectorAssembler` → `LinearRegression`) for Q3 and Q5, with sector and year fixed effects and a firm-size control. The trade shock is measured per sector × year (198 distinct values shared across 6,562 rows), so classical standard errors overstate precision. The modeling table is therefore also refit in `statsmodels` with standard errors clustered by sector, which Spark ML doesn't provide, and the pipeline checks that both libraries produce the same coefficients.
+  - *Quality:* 17 data-quality checks between layers (uniqueness, nulls, row volumes, ranges) stop the run on failure, and 8 unit tests cover the trickiest transformations and the regression code.
   - `gdp.csv` turned out to already be real GDP (chained 2017 dollars: the provinces sum to ~\$1.84T in 2013 and ~\$2.25T in 2023, ~2%/yr), so the pipeline uses it directly instead of deflating by CPI a second time as the Q1 notebook did.
 - **Tools:** Python (pandas), Jupyter/Colab, `statsmodels` / `linearmodels` (PanelOLS, fixed-effects regression), seaborn/matplotlib, PySpark (Spark SQL, Spark ML).
 
@@ -65,9 +65,9 @@ Canadian firms lived through major trade disruption between 2013 and 2023: a lar
 
 **Firm size (Q5):** small firms had substantially and consistently higher log revenue growth than large firms across the trade-shock and import-shock range (coefficient ≈ 4.5, p < 0.001 in both specifications), with tighter outcomes. Large firms showed much wider dispersion, including more negative growth under bigger shocks. The small-firm × shock interaction was negative and marginally significant.
 
-**PySpark pipeline:** the rebuild reproduces the original conclusions from a cleaner panel (6,562 industry × size × year observations, 4-digit NAICS):
-- **Trade shocks (Q3):** trade shock and net exposure are not significant predictors of revenue (p = 0.98 and p = 0.28).
-- **Firm size (Q5):** the small-firm × shock interaction is negative and marginally significant (-0.22, p = 0.074), matching the original finding.
+**PySpark pipeline:** results from a cleaner panel (6,562 industry × size × year observations, 4-digit NAICS), with standard errors clustered by sector (18 clusters):
+- **Trade shocks (Q3):** once firm size is controlled for (R² 0.71; size alone explains ~68% of the variation in log revenue), trade shock and net trade exposure are still not significant predictors of revenue (p = 0.91 and p = 0.31). This matches the original finding. With classical standard errors, net exposure would have looked borderline significant (p = 0.052), which is an artifact of treating rows that share a sector-year as independent.
+- **Firm size (Q5):** the small-firm × shock interaction is negative (-0.22), but its clustered standard error is 4x the classical one, and it isn't significant (p = 0.65, vs. p = 0.074 with classical standard errors). So the rebuild does **not** confirm that small firms respond differently to trade shocks.
 - **Real GDP growth (Q1):** without the double deflation, 2013–2023 real GDP growth ranges from 4.3%/yr (Nunavut) and 3.1% (BC) to -0.6% (Newfoundland & Labrador), about 2.0%/yr for Canada overall. NAICS 55's median decline is -20.7%/yr.
 
 **Difference-in-differences (Q6):**
@@ -85,9 +85,9 @@ Trade-exposed industries saw real GDP fall an additional **~7.5%** relative to n
 - **Structural trade exposure mattered during COVID.** Industries exposed to trade (Manufacturing, Mining/Oil & Gas, Wholesale Trade) lost an additional ~7.5% of real GDP relative to non-exposed industries. Given the small pre-existing drift, the true effect is most plausibly somewhat smaller, but the direction and rough magnitude hold up under the fixed-effects check.
 - **Year-to-year trade-shock size did not have a significant average effect** on industry revenue once macro effects (COVID, the rebound) were controlled for; economy-wide shocks dominated. This is a different question from Q6 (shock *magnitude* vs. being a structurally trade-exposed industry), so the two findings aren't contradictory.
 - **Trade exposure is concentrated** in a few industries (wholesale, mining/oil & gas, manufacturing), so disruption was reallocated across those sectors rather than spread economy-wide.
-- **Small firms grew faster and were more resilient to trade shocks**, but that resilience appears to erode as shock size increases.
+- **Small firms grew faster and were more resilient to trade shocks**, but that resilience appears to erode as shock size increases. The PySpark rebuild doesn't find that erosion to be statistically significant once standard errors are clustered by sector, so treat it as suggestive, not established.
 - **Exchange-rate effects matched trade theory in direction** (depreciation helps exporters more than it costs importers) but were modest in size.
-- **Rebuilding the pipeline surfaced two data issues the notebooks had missed:** repeated revenue records that summing would double-count, and a GDP series that was already inflation-adjusted, which Q1 had deflated a second time. Explicit schemas, key-uniqueness checks, and cross-validation against an independent implementation are what caught them.
+- **Rebuilding the pipeline surfaced two data issues the notebooks had missed:** repeated revenue records that summing would double-count, and a GDP series that was already inflation-adjusted, which Q1 had deflated a second time. Explicit schemas, key-uniqueness checks, and cross-validation against an independent implementation are what caught them. It also showed that inference has to match the data's structure: a predictor measured per sector-year needs clustered standard errors, or p-values look far stronger than the evidence.
 - **Open-data limitations constrained the analysis:** incomplete incorporation-status coding, granularity mismatches between revenue and expense files, and partial trade-exposure coverage. Findings are framed as learning-purpose, not policy-ready.
 
 ## How to run
@@ -120,7 +120,7 @@ Trade-exposed industries saw real GDP fall an additional **~7.5%** relative to n
 │   │   ├── ingest.py            # bronze: explicit schemas, CSV -> Parquet
 │   │   ├── clean.py             # silver: dedupe, unpivot/pivot, regex, fill-down
 │   │   ├── metrics.py           # gold: Q1-Q5 tables (DataFrame API + Spark SQL)
-│   │   ├── models.py            # Spark ML regressions for Q3 and Q5
+│   │   ├── models.py            # Q3/Q5 regressions: Spark ML fit + statsmodels clustered SEs
 │   │   ├── checks.py            # data-quality checks
 │   │   ├── io.py                # Parquet I/O (native Spark, or Arrow on Windows without winutils)
 │   │   ├── session.py           # SparkSession configuration

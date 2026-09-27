@@ -106,12 +106,15 @@ def main() -> None:
             panel = read_parquet(spark, config.GOLD_DIR / "firm_panel")
             config.RESULTS_DIR.mkdir(parents=True, exist_ok=True)
             results = {}
-            for r in models.fit_models(spark, panel):
-                coefs = r.coefficients.toPandas()
-                coefs.to_csv(config.RESULTS_DIR / f"{r.name}.csv", index=False)
-                results[r.name] = {"formula": r.formula, "n": r.n_observations, "r2": round(r.r2, 4)}
-                key_terms = coefs[~coefs.term.str.contains("_fe_") & (coefs.term != "intercept")]
-                print(f"\n{r.name}: {r.formula}\n  n={r.n_observations:,}  R2={r.r2:.3f}")
+            for r in models.fit_models(panel):
+                r.coefficients.to_csv(config.RESULTS_DIR / f"{r.name}.csv", index=False)
+                results[r.name] = {
+                    "formula": r.formula, "n": r.n_observations,
+                    "sector_clusters": r.n_clusters, "r2": round(r.r2, 4),
+                }
+                key_terms = r.coefficients.dropna(subset=["cluster_p_value"])
+                print(f"\n{r.name}: {r.formula}\n  n={r.n_observations:,}  R2={r.r2:.3f}  "
+                      f"clusters={r.n_clusters}  (cluster_* = standard errors clustered by sector)")
                 print(key_terms.to_string(index=False, float_format=lambda v: f"{v:.4f}"))
             return {"models": results}
         timed("models", fit)
@@ -119,7 +122,8 @@ def main() -> None:
     summary["total_seconds"] = round(time.perf_counter() - start, 1)
     config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     (config.OUTPUT_DIR / "run_summary.json").write_text(json.dumps(summary, indent=2))
-    print(f"\nPipeline finished in {summary['total_seconds']}s; {summary['checks_passed']} data-quality checks passed.")
+    checks_note = f"; {summary['checks_passed']} data-quality checks passed" if summary["checks_passed"] else ""
+    print(f"\nPipeline finished in {summary['total_seconds']}s{checks_note}.")
     spark.stop()
 
 
