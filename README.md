@@ -36,7 +36,22 @@ Canadian firms lived through major trade disruption between 2013 and 2023: a lar
   - *Treatment:* the three most trade-exposed industries from Q2 (Mining/Oil & Gas, Manufacturing, Wholesale Trade). *Control:* domestically anchored, largely publicly funded sectors (Health Care, Education, Public Administration). *Post period:* 2020 onward.
   - Outcome is real GDP by industry, because the firm-level revenue files were missing from the repo when Q6 was built (they've since been restored).
   - Parallel trends tested with a pre-period-only regression (2013–2019), and robustness checked with a province + year fixed-effects specification.
-- **Tools:** Python (pandas), Jupyter/Colab, `statsmodels` / `linearmodels` (PanelOLS, fixed-effects regression), seaborn/matplotlib.
+- **PySpark pipeline (`spark/`):** a rebuild of the data preparation and Q1–Q5 analysis as a layered PySpark pipeline, validated row-for-row against independent pandas calculations.
+  - *Bronze:* every raw CSV is read with an explicit schema checked against its header, and saved as Parquet (revenue and expenses partitioned by year).
+  - *Silver:* cleaning and reshaping with Spark:
+    - deduplication, with one canonical full-detail record per revenue key (the export repeats keys for unlabeled sub-populations, so summing them would double-count);
+    - medians for expense keys whose rows can't be told apart;
+    - `unpivot`-style reshaping of the revenue quartiles, and a pivot of StatCan's long-format trade tables;
+    - regex extraction of NAICS codes, and an order-preserving fill-down of the GDP file.
+  - *Gold:* one table per question:
+    - real GDP growth and CAGR (window functions, `min_by`/`max_by`);
+    - trade exposure and trade shocks (written in Spark SQL);
+    - a firm-size revenue panel (broadcast joins, lag windows);
+    - FX correlations and within-industry revenue inequality.
+  - *Models:* Spark ML pipelines (`StringIndexer` → `OneHotEncoder` → `VectorAssembler` → `LinearRegression`) for Q3 and Q5.
+  - *Quality:* 17 data-quality checks between layers (uniqueness, nulls, row volumes, ranges) stop the run on failure, and 7 unit tests cover the trickiest transformations.
+  - `gdp.csv` turned out to already be real GDP (chained 2017 dollars: the provinces sum to ~\$1.84T in 2013 and ~\$2.25T in 2023, ~2%/yr), so the pipeline uses it directly instead of deflating by CPI a second time as the Q1 notebook did.
+- **Tools:** Python (pandas), Jupyter/Colab, `statsmodels` / `linearmodels` (PanelOLS, fixed-effects regression), seaborn/matplotlib, PySpark (Spark SQL, Spark ML).
 
 ## Results
 
@@ -49,6 +64,11 @@ Canadian firms lived through major trade disruption between 2013 and 2023: a lar
 **Exchange rates (Q4):** revenue had a slight positive correlation with FX change (r = 0.16), consistent with exporters benefiting from CAD depreciation, while expenses were nearly uncorrelated (r = 0.08), suggesting many costs are domestic or fixed. Correlations were weak overall, pointing to sector-specific rather than economy-wide FX dynamics.
 
 **Firm size (Q5):** small firms had substantially and consistently higher log revenue growth than large firms across the trade-shock and import-shock range (coefficient ≈ 4.5, p < 0.001 in both specifications), with tighter outcomes. Large firms showed much wider dispersion, including more negative growth under bigger shocks. The small-firm × shock interaction was negative and marginally significant.
+
+**PySpark pipeline:** the rebuild reproduces the original conclusions from a cleaner panel (6,562 industry × size × year observations, 4-digit NAICS):
+- **Trade shocks (Q3):** trade shock and net exposure are not significant predictors of revenue (p = 0.98 and p = 0.28).
+- **Firm size (Q5):** the small-firm × shock interaction is negative and marginally significant (-0.22, p = 0.074), matching the original finding.
+- **Real GDP growth (Q1):** without the double deflation, 2013–2023 real GDP growth ranges from 4.3%/yr (Nunavut) and 3.1% (BC) to -0.6% (Newfoundland & Labrador), about 2.0%/yr for Canada overall. NAICS 55's median decline is -20.7%/yr.
 
 **Difference-in-differences (Q6):**
 
@@ -67,6 +87,7 @@ Trade-exposed industries saw real GDP fall an additional **~7.5%** relative to n
 - **Trade exposure is concentrated** in a few industries (wholesale, mining/oil & gas, manufacturing), so disruption was reallocated across those sectors rather than spread economy-wide.
 - **Small firms grew faster and were more resilient to trade shocks**, but that resilience appears to erode as shock size increases.
 - **Exchange-rate effects matched trade theory in direction** (depreciation helps exporters more than it costs importers) but were modest in size.
+- **Rebuilding the pipeline surfaced two data issues the notebooks had missed:** repeated revenue records that summing would double-count, and a GDP series that was already inflation-adjusted, which Q1 had deflated a second time. Explicit schemas, key-uniqueness checks, and cross-validation against an independent implementation are what caught them.
 - **Open-data limitations constrained the analysis:** incomplete incorporation-status coding, granularity mismatches between revenue and expense files, and partial trade-exposure coverage. Findings are framed as learning-purpose, not policy-ready.
 
 ## How to run
@@ -74,6 +95,14 @@ Trade-exposed industries saw real GDP fall an additional **~7.5%** relative to n
 1. Install the dependencies: `pip install -r requirements-q6.txt` (pandas, numpy, matplotlib, statsmodels, jupyter). Q5 also needs `linearmodels` (for `PanelOLS`), and the Q4, Q5 and final notebooks use `seaborn` for charts.
 2. Run the question notebooks in `EDA/` or [`Final_Project_Notebook.ipynb`](Final_Project_Notebook.ipynb). The Q1–Q5 and data-prep notebooks were built in Google Colab and refer to a `../RawData/` folder; in this repo those files are in `Data/`, so update the paths if running locally. pandas reads the zipped Revenue and Expenses files directly, e.g. `pd.read_csv("Data/Revenue.csv.zip")`.
 3. [`EDA/Q6-Difference-in-Differences Trade Shock Impact.ipynb`](<EDA/Q6-Difference-in-Differences Trade Shock Impact.ipynb>) runs locally as-is.
+4. **PySpark pipeline:** needs Java 17+ (set `JAVA_HOME`, or unzip a JDK to `~/tools/jdk-21`, which the pipeline finds automatically). From the repo root:
+   ```bash
+   python -m venv spark/.venv
+   spark/.venv/Scripts/pip install -r spark/requirements.txt
+   spark/.venv/Scripts/python spark/run_pipeline.py       # bronze -> silver -> gold -> models (~5 min)
+   spark/.venv/Scripts/python -m pytest spark/tests       # unit tests
+   ```
+   Output lands in `spark/output/` (Parquet tables, model coefficients as CSV, and a `run_summary.json`); the Spark UI is at `http://localhost:4040` while it runs. On Windows without Hadoop's `winutils.exe`, Parquet files are read and written through Apache Arrow instead of Spark's own writer; all transformations still run in Spark, and on Linux/WSL/Docker the native writer is used.
 
 ## Repo structure
 
@@ -85,6 +114,19 @@ Trade-exposed industries saw real GDP fall an additional **~7.5%** relative to n
 │   ├── Q6-Difference-in-Differences Trade Shock Impact.ipynb
 │   ├── canada_provinces.geojson  # province boundaries for the exposure maps
 │   └── parallel_trends_check.png
+├── spark/
+│   ├── run_pipeline.py          # entry point: runs every layer, with quality checks between them
+│   ├── trade_pipeline/
+│   │   ├── ingest.py            # bronze: explicit schemas, CSV -> Parquet
+│   │   ├── clean.py             # silver: dedupe, unpivot/pivot, regex, fill-down
+│   │   ├── metrics.py           # gold: Q1-Q5 tables (DataFrame API + Spark SQL)
+│   │   ├── models.py            # Spark ML regressions for Q3 and Q5
+│   │   ├── checks.py            # data-quality checks
+│   │   ├── io.py                # Parquet I/O (native Spark, or Arrow on Windows without winutils)
+│   │   ├── session.py           # SparkSession configuration
+│   │   └── config.py            # paths and analysis window
+│   ├── tests/                   # pytest unit tests on hand-built DataFrames
+│   └── requirements.txt
 ├── Final_Project_Notebook.ipynb
 ├── Trade Shocks and Industry Performance in Canada (2013–2023).pdf
 ├── requirements-q6.txt
